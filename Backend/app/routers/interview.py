@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..db import get_db
 from ..services.gemini_service import gemini_service
+from ..services.tavus_service import tavus_service
 
 router = APIRouter()
 
@@ -46,12 +47,35 @@ def start_interview(payload: schemas.InterviewStartRequest, db: Session = Depend
     db.commit()
     db.refresh(interview)
 
-    # First question via Gemini service (currently stubbed)
+    # Create Tavus CVI conversation for this interview
     candidate_profile = {
         "name": candidate.name,
         "email": candidate.email,
         "role": candidate.role,
     }
+    # You can later enrich this context with resume summary, skills, etc.
+    context_str = (
+        f"You are an AI interviewer. The candidate is {candidate_profile.get('name')} "
+        f"for role {candidate_profile.get('role')}. Conduct a professional, structured "
+        f"interview, starting with introductions and then exploring background, skills, "
+        f"projects, and behavior."
+    )
+
+    try:
+        tavus_data = tavus_service.create_conversation(
+            conversation_name=f"InterviewDost Interview {interview.interview_id}",
+            context=context_str,
+        )
+    except RuntimeError as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    interview.tavus_conversation_id = tavus_data.get("conversation_id")
+    interview.tavus_conversation_url = tavus_data.get("conversation_url")
+    db.add(interview)
+    db.commit()
+    db.refresh(interview)
+
+    # First question via Gemini service (currently stubbed for scoring pipeline)
     question_text = gemini_service.generate_question(candidate_profile)
 
     question = models.Question(
@@ -68,6 +92,7 @@ def start_interview(payload: schemas.InterviewStartRequest, db: Session = Depend
             question_id=question.question_id,
             text=question.question_text,
         ),
+        conversation_url=interview.tavus_conversation_url,
     )
 
 

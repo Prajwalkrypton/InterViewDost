@@ -21,6 +21,8 @@ class Settings:
     GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
     OPENROUTER_API_KEY: str | None = os.getenv("OPENROUTER_API_KEY")
     TAVUS_API_KEY: str | None = os.getenv("TAVUS_API_KEY")
+    TAVUS_PERSONA_ID: str | None = os.getenv("TAVUS_PERSONA_ID")
+    TAVUS_REPLICA_ID: str | None = os.getenv("TAVUS_REPLICA_ID")
 
 
 @lru_cache

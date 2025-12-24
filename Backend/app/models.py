@@ -59,6 +59,8 @@ class Interview(Base):
     time = Column(Time, nullable=True)
     type = Column(String(100), nullable=True)
     overall_score = Column(Integer, nullable=True)
+    tavus_conversation_id = Column(String(100), nullable=True)
+    tavus_conversation_url = Column(String(255), nullable=True)
 
     candidate = relationship("User", foreign_keys=[candidate_id], back_populates="candidate_interviews")
     interviewer = relationship("User", foreign_keys=[interviewer_id], back_populates="interviewer_interviews")

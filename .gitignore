@@ -6,7 +6,9 @@ Frontend/dist/
 Backend/.venv/
 Backend/__pycache__/
 Backend/**/*.pyc
+Backend/app/env
 
 # OS / editor junk
 .DS_Store
 Thumbs.db
+.env

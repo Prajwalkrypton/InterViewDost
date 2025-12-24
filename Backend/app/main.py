@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .core_config import get_settings
 from .db import Base, engine
-from .routers import interview, users
+from .routers import interview, users, health
 
 settings = get_settings()
 
@@ -26,6 +26,7 @@ def on_startup() -> None:
 
 app.include_router(interview.router, prefix="/api/interview", tags=["interview"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(health.router, tags=["health"])
 
 
 if __name__ == "__main__":

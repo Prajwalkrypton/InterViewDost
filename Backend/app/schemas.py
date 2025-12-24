@@ -34,6 +34,7 @@ class Question(BaseModel):
 class InterviewStartResponse(BaseModel):
     interview_id: int
     question: Question
+    conversation_url: Optional[str] = None
 
 
 class AnswerRequest(BaseModel):

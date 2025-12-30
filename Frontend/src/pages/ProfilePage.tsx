@@ -21,6 +21,7 @@ export function ProfilePage() {
   const [projects, setProjects] = useState<string>("");
   const [companiesWorked, setCompaniesWorked] = useState<string>("");
   const [resumeText, setResumeText] = useState<string>("");
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +36,28 @@ export function ProfilePage() {
     setLoading(true);
     setError(null);
     try {
+      // If a PDF resume is uploaded and no manual resume text is provided,
+      // send the PDF to the backend to extract raw text first.
+      let finalResumeText = resumeText;
+      if (resumeFile && !resumeText) {
+        const formData = new FormData();
+        formData.append("file", resumeFile);
+
+        const baseUrl = import.meta.env.VITE_API_URL || "";
+        const resp = await fetch(`${baseUrl}/api/profile/upload_resume`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!resp.ok) {
+          throw new Error("Failed to process resume PDF");
+        }
+
+        const data = (await resp.json()) as { resume_text?: string };
+        finalResumeText = data.resume_text || "";
+        setResumeText(finalResumeText);
+      }
+
       const payload = {
         name: user.name,
         email: user.email,
@@ -57,7 +80,7 @@ export function ProfilePage() {
           .filter(Boolean),
         target_role: targetRole || undefined,
         target_company: targetCompany || undefined,
-        resume_text: resumeText || undefined,
+        resume_text: finalResumeText || undefined,
       };
 
       const data = await apiPost<ProfileEnrichResponse>(
@@ -158,7 +181,16 @@ export function ProfilePage() {
           </div>
 
           <div>
-            <label className="block mb-1">Resume Text (optional)</label>
+            <label className="block mb-1">Resume (PDF or text)</label>
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setResumeFile(file);
+              }}
+              className="mb-2 block w-full text-xs text-zinc-300 file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-indigo-600 file:text-white hover:file:bg-indigo-500"
+            />
             <textarea
               rows={4}
               value={resumeText}

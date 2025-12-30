@@ -1,8 +1,10 @@
 import { Button } from "./ui/button";
 import { motion } from "motion/react";
+import { useNavigate } from "react-router-dom";
 import heroVideo from "../../../media/1.mp4";
 
 export function Hero() {
+  const navigate = useNavigate();
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Background Image with Overlay */}
@@ -64,10 +66,19 @@ export function Hero() {
           </p>
 
           <div className="flex gap-4 justify-center mb-20">
-            <Button size="lg" className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20">
+            <Button
+              size="lg"
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20"
+              onClick={() => navigate("/login")}
+            >
               Start Your First Interview
             </Button>
-            <Button size="lg" variant="outline" className="border-zinc-700 text-white hover:bg-zinc-900">
+            <Button
+              size="lg"
+              variant="outline"
+              className="border-zinc-700 text-white hover:bg-zinc-900"
+              onClick={() => navigate("/login")}
+            >
               Watch Demo
             </Button>
           </div>

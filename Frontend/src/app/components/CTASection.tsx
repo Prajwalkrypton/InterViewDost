@@ -1,7 +1,9 @@
 import { Button } from "./ui/button";
 import { motion } from "motion/react";
+import { useNavigate } from "react-router-dom";
 
 export function CTASection() {
+  const navigate = useNavigate();
   return (
     <section className="relative py-32 px-6 bg-zinc-950 overflow-hidden">
       {/* Background Image */}
@@ -34,10 +36,19 @@ export function CTASection() {
           </p>
 
           <div className="flex gap-4 justify-center mb-16">
-            <Button size="lg" className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20 px-8">
+            <Button
+              size="lg"
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20 px-8"
+              onClick={() => navigate("/login")}
+            >
               Get Started Now →
             </Button>
-            <Button size="lg" variant="outline" className="border-zinc-700 text-white hover:bg-zinc-900 px-8">
+            <Button
+              size="lg"
+              variant="outline"
+              className="border-zinc-700 text-white hover:bg-zinc-900 px-8"
+              onClick={() => navigate("/login")}
+            >
               Schedule Demo
             </Button>
           </div>

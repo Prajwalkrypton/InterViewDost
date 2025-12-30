@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..db import get_db
+from io import BytesIO
+from PyPDF2 import PdfReader
 from ..services.gemini_service import gemini_service
 
 
@@ -37,6 +39,9 @@ def enrich_profile(payload: schemas.CandidateProfileInput, db: Session = Depends
 
     # Update user resume_summary
     user.resume_summary = resume_summary
+    # Persist raw resume text (if provided) for later analysis/debugging
+    if payload.resume_text:
+        user.resume_raw = payload.resume_text
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -76,3 +81,35 @@ def enrich_profile(payload: schemas.CandidateProfileInput, db: Session = Depends
         resume_summary=resume_summary,
         skills=normalized_skills,
     )
+
+
+@router.post("/profile/upload_resume")
+async def upload_resume(file: UploadFile = File(...)) -> dict:
+    """Accept a PDF resume upload and return extracted text.
+
+    The frontend can then send this text as `resume_text` to the existing
+    `/profile/enrich` endpoint so Gemini can generate a summary & skills.
+    """
+
+    if file.content_type not in {"application/pdf", "application/x-pdf"}:
+        raise HTTPException(status_code=400, detail="Only PDF resumes are supported")
+
+    content = await file.read()
+
+    # Prefer Gemini's PDF understanding via inlineData; fall back to PyPDF2
+    try:
+        full_text = gemini_service.extract_resume_text_from_pdf(content)
+    except Exception:
+        reader = PdfReader(BytesIO(content))
+        extracted_text_parts = []
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            extracted_text_parts.append(page_text)
+
+        full_text = "\n".join(extracted_text_parts).strip()
+
+    # Truncate to a safe length for downstream LLM calls
+    if len(full_text) > 20000:
+        full_text = full_text[:20000]
+
+    return {"resume_text": full_text}

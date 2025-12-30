@@ -1,4 +1,6 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
+
+import requests
 
 from ..core_config import get_settings
 
@@ -7,76 +9,223 @@ settings = get_settings()
 
 
 class GeminiService:
-    """Wrapper around Gemini API for question generation and answer evaluation.
-
-    For now, this is a stub that you can later expand to real HTTP calls to the
-    Gemini API using `settings.GEMINI_API_KEY`.
-    """
+    """Wrapper around Gemini API for question generation and answer evaluation."""
 
     def __init__(self) -> None:
         self.api_key = settings.GEMINI_API_KEY
+        # You can change the model name here if needed.
+        self.model = "gemini-1.5-flash"
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta"
+
+    def _generate(self, prompt: str, system_instruction: str | None = None) -> str:
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY is not configured")
+
+        url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
+
+        contents: List[Dict[str, Any]] = []
+        if system_instruction:
+            contents.append({"role": "user", "parts": [{"text": system_instruction}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+        payload = {"contents": contents}
+
+        resp = requests.post(url, json=payload, timeout=60)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Gemini error {resp.status_code}: {resp.text}")
+
+        data = resp.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return ""
+
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        texts = [p.get("text", "") for p in parts]
+        return " ".join(texts).strip()
+
+    def extract_resume_text_from_pdf(self, pdf_bytes: bytes) -> str:
+        """Use Gemini to extract plain text from a PDF resume.
+
+        This sends the PDF as inlineData and asks Gemini to return only the
+        extracted plain text. This generally yields better structure than
+        basic PDF parsing.
+        """
+
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY is not configured")
+
+        import base64
+
+        b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+        url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
+
+        contents: List[Dict[str, Any]] = [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "inlineData": {
+                            "mimeType": "application/pdf",
+                            "data": b64,
+                        }
+                    },
+                    {
+                        "text": (
+                            "Extract and return the full plain-text content of this resume. "
+                            "Return only plain text, no markdown or JSON."
+                        )
+                    },
+                ],
+            }
+        ]
+
+        resp = requests.post(url, json={"contents": contents}, timeout=90)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Gemini PDF error {resp.status_code}: {resp.text}")
+
+        data = resp.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return ""
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        texts = [p.get("text", "") for p in parts]
+        return " ".join(texts).strip()
 
     def generate_question(self, candidate_profile: Dict[str, Any]) -> str:
-        """Generate the next interview question.
+        role = candidate_profile.get("role") or "this role"
+        name = candidate_profile.get("name") or "the candidate"
+        summary = candidate_profile.get("resume_summary") or ""
+        skills = candidate_profile.get("skills") or []
+        skills_str = ", ".join(skills) if skills else "unspecified skills"
 
-        Currently a simple deterministic template; replace with real Gemini call.
-        """
+        prompt = (
+            f"You are an AI interviewer preparing the very first question for a mock "
+            f"interview. The candidate is {name}, targeting the role '{role}'. "
+            f"Their summarized background is: {summary}\n"
+            f"Key skills: {skills_str}.\n\n"
+            "Write a single, open-ended first question that invites them to introduce "
+            "themselves and connect their experience to this role. Return only the question text."
+        )
 
-        role = candidate_profile.get("role")
-        base = "Tell me about yourself and how your background fits this role."
-        if role:
-            return (
-                "To start, could you briefly introduce yourself and explain why you "
-                f"are a good fit for the {role} role?"
-            )
-        return base
+        try:
+            text = self._generate(prompt)
+            return text or "To start, could you briefly introduce yourself and explain why you are a good fit for this role?"
+        except RuntimeError:
+            return "To start, could you briefly introduce yourself and explain why you are a good fit for this role?"
 
     def evaluate_answer(self, question: str, answer: str) -> Dict[str, int]:
-        """Evaluate an answer and return simple scores.
+        prompt = (
+            "You are evaluating a candidate's answer in a mock interview. "
+            "Given the question and answer, provide two integer scores from 1 to 10: "
+            "relevance_score and confidence_level. Respond strictly as JSON, for example: "
+            "{\"relevance_score\": 8, \"confidence_level\": 7}.\n\n"
+            f"Question: {question}\n\nAnswer: {answer}"
+        )
 
-        This stub uses only length-based heuristics. Replace with Gemini.
-        """
+        try:
+            raw = self._generate(prompt)
+            import json
 
-        length = len(answer.split())
-        if length < 5:
-            score = 1
-        elif length < 20:
-            score = 3
-        else:
-            score = 5
-
-        return {
-            "relevance_score": 8,
-            "confidence_level": 7,
-        }
+            data = json.loads(raw)
+            rel = int(data.get("relevance_score", 7))
+            conf = int(data.get("confidence_level", 7))
+            rel = max(1, min(10, rel))
+            conf = max(1, min(10, conf))
+            return {"relevance_score": rel, "confidence_level": conf}
+        except Exception:
+            return {"relevance_score": 8, "confidence_level": 7}
 
     def summarize_candidate_profile(self, raw_profile: Dict[str, Any]) -> Dict[str, Any]:
-        """Return a concise resume summary and normalized skills list.
-
-        This is currently a stub. Later, replace with a real Gemini call that
-        takes the raw_profile fields and generates a rich yet concise summary
-        plus a cleaned list of skills.
-        """
-
-        # Naive heuristic implementation for now
         name = raw_profile.get("name") or "The candidate"
         target_role = raw_profile.get("target_role") or "the desired role"
         companies = raw_profile.get("companies_worked") or []
         tech_stack = raw_profile.get("tech_stack") or []
+        resume_text = raw_profile.get("resume_text") or ""
 
-        companies_str = ", ".join(companies) if companies else "various organizations"
-        tech_str = ", ".join(tech_stack) if tech_stack else "multiple technologies"
+        companies_str = "; ".join(companies)
+        tech_str = ", ".join(tech_stack)
 
-        summary = (
-            f"{name} is aiming for {target_role}. They have experience at {companies_str} "
-            f"and have worked with {tech_str}. This summary is stub-generated and should "
-            f"later be replaced by a Gemini-powered description based on the full resume."
+        system_instruction = (
+            "You are helping summarize a candidate's background for an AI interviewer. "
+            "Given structured profile fields and optional raw resume text, write a concise "
+            "2-4 sentence resume-style summary and extract a cleaned list of 5-15 key skills."
         )
 
-        # Combine tech_stack with skills inferred from experiences/projects later
-        skills = sorted(set(tech_stack))
+        prompt = (
+            f"Name: {name}\n"
+            f"Target role: {target_role}\n"
+            f"Companies worked: {companies_str or 'N/A'}\n"
+            f"Tech stack: {tech_str or 'N/A'}\n\n"
+        )
+        if resume_text:
+            prompt += f"Resume text:\n{resume_text}\n\n"
 
-        return {"resume_summary": summary, "skills": skills}
+        prompt += (
+            "Return your answer strictly as JSON with two fields: "
+            "`resume_summary` (string) and `skills` (array of strings)."
+        )
+
+        try:
+            raw = self._generate(prompt, system_instruction)
+            import json
+
+            data = json.loads(raw)
+            summary = str(data.get("resume_summary") or "")
+            skills = data.get("skills") or []
+            skills = [str(s).strip() for s in skills if str(s).strip()]
+            return {"resume_summary": summary, "skills": skills}
+        except Exception:
+            # Fallback: simple heuristic if Gemini fails
+            base_summary = (
+                f"{name} is aiming for {target_role}. They have worked at {companies_str or 'various organizations'} "
+                f"and used technologies such as {tech_str or 'multiple technologies'}."
+            )
+            return {"resume_summary": base_summary, "skills": tech_stack}
+
+    def summarize_interview(self, interview: Dict[str, Any], qa_items: list[Dict[str, Any]]) -> Dict[str, str]:
+        candidate_name = interview.get("candidate_name") or "The candidate"
+        role = interview.get("role") or "the target role"
+
+        qa_text_lines = []
+        for idx, item in enumerate(qa_items, start=1):
+            q = item.get("question") or ""
+            a = item.get("answer") or "(no answer recorded)"
+            qa_text_lines.append(f"Q{idx}: {q}\nA{idx}: {a}")
+
+        qa_block = "\n\n".join(qa_text_lines)
+
+        system_instruction = (
+            "You are an interview coach generating feedback after a mock interview. "
+            "Given the role and a list of questions and answers, write: (1) a concise "
+            "overall comments paragraph, and (2) a suggestions paragraph with concrete "
+            "next steps."
+        )
+
+        prompt = (
+            f"Candidate name: {candidate_name}\n"
+            f"Target role: {role}\n\n"
+            f"Transcript (questions and answers):\n{qa_block}\n\n"
+            "Return strictly as JSON: {\"comments\": string, \"suggestions\": string}."
+        )
+
+        try:
+            raw = self._generate(prompt, system_instruction)
+            import json
+
+            data = json.loads(raw)
+            comments = str(data.get("comments") or "")
+            suggestions = str(data.get("suggestions") or "")
+            return {"comments": comments, "suggestions": suggestions}
+        except Exception:
+            fallback_comments = (
+                f"{candidate_name} completed a mock interview for {role}. This is fallback feedback "
+                "used when the Gemini API response could not be parsed."
+            )
+            fallback_suggestions = (
+                "Focus on giving structured, specific examples (STAR format) and highlight measurable impact."
+            )
+            return {"comments": fallback_comments, "suggestions": fallback_suggestions}
 
 
 gemini_service = GeminiService()

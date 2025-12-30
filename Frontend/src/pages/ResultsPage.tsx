@@ -16,12 +16,21 @@ interface InterviewSummaryResponse {
   completed_at: string | null;
 }
 
+interface FeedbackResponse {
+  feedback_id: number;
+  interview_id: number;
+  comments: string | null;
+  suggestions: string | null;
+  report_url: string | null;
+}
+
 export function ResultsPage() {
   const { interviewId } = useParams<{ interviewId: string }>();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<InterviewSummaryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackResponse | null>(null);
 
   useEffect(() => {
     if (!interviewId) return;
@@ -29,10 +38,17 @@ export function ResultsPage() {
       setLoading(true);
       setError(null);
       try {
-        const data = await apiGet<InterviewSummaryResponse>(
-          `/api/interview/${interviewId}/summary`,
-        );
-        setSummary(data);
+        const [summaryData, feedbackData] = await Promise.all([
+          apiGet<InterviewSummaryResponse>(
+            `/api/interview/${interviewId}/summary`,
+          ),
+          apiGet<FeedbackResponse>(
+            `/api/interview/${interviewId}/feedback`,
+          ),
+        ]);
+
+        setSummary(summaryData);
+        setFeedback(feedbackData);
       } catch (err: any) {
         setError(err.message ?? "Failed to load summary");
       } finally {
@@ -89,6 +105,22 @@ export function ResultsPage() {
                 </div>
               ))}
             </div>
+
+            {feedback && (
+              <div className="mt-6 border-t border-zinc-800 pt-4">
+                <h2 className="text-lg font-semibold mb-2">Detailed Feedback</h2>
+                {feedback.comments && (
+                  <div className="mb-3 text-sm text-zinc-200">
+                    {feedback.comments}
+                  </div>
+                )}
+                {feedback.suggestions && (
+                  <div className="text-sm text-zinc-300">
+                    <span className="font-semibold">Suggestions:</span> {feedback.suggestions}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

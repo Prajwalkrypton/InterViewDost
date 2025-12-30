@@ -6,3 +6,4 @@ python-dotenv
 pydantic
 requests
 passlib[bcrypt]
+PyPDF2

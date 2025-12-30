@@ -298,8 +298,46 @@ def create_feedback(
 @router.get("/{interview_id}/feedback", response_model=dict)
 def get_feedback(interview_id: int, db: Session = Depends(get_db)):
     fb = db.query(models.Feedback).filter_by(interview_id=interview_id).first()
+
     if not fb:
-        raise HTTPException(status_code=404, detail="Feedback not found")
+        interview = db.query(models.Interview).filter_by(interview_id=interview_id).first()
+        if not interview:
+            raise HTTPException(status_code=404, detail="Interview not found")
+
+        # Build a simple structure for Gemini summary
+        interview_info = {
+            "candidate_name": interview.candidate.name if interview.candidate else None,
+            "role": interview.type,
+        }
+
+        questions = (
+            db.query(models.Question)
+            .filter_by(interview_id=interview_id)
+            .order_by(models.Question.question_id)
+            .all()
+        )
+
+        qa_items: list[dict] = []
+        for q in questions:
+            resp = q.response
+            qa_items.append(
+                {
+                    "question": q.question_text,
+                    "answer": resp.answer_text if resp else None,
+                }
+            )
+
+        summary = gemini_service.summarize_interview(interview_info, qa_items)
+
+        fb = models.Feedback(
+            interview_id=interview_id,
+            comments=summary.get("comments"),
+            suggestions=summary.get("suggestions"),
+            report_url=None,
+        )
+        db.add(fb)
+        db.commit()
+        db.refresh(fb)
 
     return {
         "feedback_id": fb.feedback_id,

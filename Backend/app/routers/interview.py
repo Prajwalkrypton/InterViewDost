@@ -16,17 +16,60 @@ router = APIRouter()
 
 @router.post("/start", response_model=schemas.InterviewStartResponse)
 def start_interview(payload: schemas.InterviewStartRequest, db: Session = Depends(get_db)):
-    # Create candidate user (simple flow: always create a new user row)
+    # Create or reuse candidate user.
+    # If a user with this email already exists (e.g. the seeded admin), reuse
+    # that row instead of inserting a new one to avoid unique email conflicts.
     cand_data = payload.candidate
-    candidate = models.User(
-        name=cand_data.name,
-        email=cand_data.email,
-        password_hash=cand_data.password_hash,
-        role=cand_data.role or "candidate",
-    )
-    db.add(candidate)
-    db.commit()
-    db.refresh(candidate)
+
+    candidate = None
+    if cand_data.email:
+        candidate = db.query(models.User).filter_by(email=cand_data.email).first()
+
+    if candidate is None:
+        candidate = models.User(
+            name=cand_data.name,
+            email=cand_data.email,
+            password_hash=cand_data.password_hash,
+            role=cand_data.role or "candidate",
+            resume_summary=cand_data.resume_summary,
+        )
+        db.add(candidate)
+        db.commit()
+        db.refresh(candidate)
+
+    # Attach skills to candidate if provided
+    skill_names: list[str] = []
+    if payload.skills:
+        for skill_name in payload.skills:
+            normalized = (skill_name or "").strip()
+            if not normalized:
+                continue
+            existing_skill = (
+                db.query(models.Skill)
+                .filter(models.Skill.skill_name.ilike(normalized))
+                .first()
+            )
+            if existing_skill is None:
+                existing_skill = models.Skill(skill_name=normalized)
+                db.add(existing_skill)
+                db.commit()
+                db.refresh(existing_skill)
+
+            link_exists = (
+                db.query(models.UserSkill)
+                .filter_by(user_id=candidate.user_id, skill_id=existing_skill.skill_id)
+                .first()
+            )
+            if not link_exists:
+                user_skill = models.UserSkill(
+                    user_id=candidate.user_id,
+                    skill_id=existing_skill.skill_id,
+                    proficiency=None,
+                )
+                db.add(user_skill)
+                db.commit()
+
+            skill_names.append(existing_skill.skill_name)
 
     # For now, interviewer is not created dynamically; we require an interviewer_id
     if payload.interviewer_id is None:
@@ -52,25 +95,52 @@ def start_interview(payload: schemas.InterviewStartRequest, db: Session = Depend
         "name": candidate.name,
         "email": candidate.email,
         "role": candidate.role,
+        "resume_summary": candidate.resume_summary,
+        "skills": skill_names,
     }
-    # You can later enrich this context with resume summary, skills, etc.
+
+    skills_section = ", ".join(skill_names) if skill_names else "(skills not provided)"
+    resume_section = candidate.resume_summary or "No explicit resume summary was provided."
+
     context_str = (
-        f"You are an AI interviewer. The candidate is {candidate_profile.get('name')} "
-        f"for role {candidate_profile.get('role')}. Conduct a professional, structured "
-        f"interview, starting with introductions and then exploring background, skills, "
-        f"projects, and behavior."
+        f"""You are an AI interviewer.
+Candidate details:
+- Name: {candidate_profile.get('name')}
+- Email: {candidate_profile.get('email')}
+- Target role: {candidate_profile.get('role') or payload.interview_type}
+
+Resume summary:
+{resume_section}
+
+Key skills:
+{skills_section}
+
+Interview guidelines:
+- Start by briefly introducing yourself as the AI interviewer.
+- Ask about the candidate's background and recent experience.
+- Drill into their key skills and projects.
+- Ask behavioral questions about teamwork, conflict, and learning.
+- Keep a professional, friendly tone and adjust depth based on answers."""
     )
 
+    tavus_data: dict | None = None
     try:
         tavus_data = tavus_service.create_conversation(
             conversation_name=f"InterviewDost Interview {interview.interview_id}",
-            context=context_str,
         )
-    except RuntimeError as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    interview.tavus_conversation_id = tavus_data.get("conversation_id")
-    interview.tavus_conversation_url = tavus_data.get("conversation_url")
+        conv_id = tavus_data.get("conversation_id") if tavus_data else None
+        if conv_id:
+            # Feed the interview context as a system message, per Tavus best practices.
+            tavus_service.send_system_message(conv_id, context_str)
+    except RuntimeError:
+        # If Tavus is unavailable or returns an error (e.g. rate limit, bad config),
+        # continue with the interview flow but without an avatar URL. This keeps the
+        # core product usable even when the external provider is flaky.
+        tavus_data = None
+
+    interview.tavus_conversation_id = tavus_data.get("conversation_id") if tavus_data else None
+    interview.tavus_conversation_url = tavus_data.get("conversation_url") if tavus_data else None
     db.add(interview)
     db.commit()
     db.refresh(interview)

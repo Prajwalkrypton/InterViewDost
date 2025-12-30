@@ -46,9 +46,37 @@ class GeminiService:
             score = 5
 
         return {
-            "relevance_score": score,
-            "confidence_level": score,
+            "relevance_score": 8,
+            "confidence_level": 7,
         }
+
+    def summarize_candidate_profile(self, raw_profile: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a concise resume summary and normalized skills list.
+
+        This is currently a stub. Later, replace with a real Gemini call that
+        takes the raw_profile fields and generates a rich yet concise summary
+        plus a cleaned list of skills.
+        """
+
+        # Naive heuristic implementation for now
+        name = raw_profile.get("name") or "The candidate"
+        target_role = raw_profile.get("target_role") or "the desired role"
+        companies = raw_profile.get("companies_worked") or []
+        tech_stack = raw_profile.get("tech_stack") or []
+
+        companies_str = ", ".join(companies) if companies else "various organizations"
+        tech_str = ", ".join(tech_stack) if tech_stack else "multiple technologies"
+
+        summary = (
+            f"{name} is aiming for {target_role}. They have experience at {companies_str} "
+            f"and have worked with {tech_str}. This summary is stub-generated and should "
+            f"later be replaced by a Gemini-powered description based on the full resume."
+        )
+
+        # Combine tech_stack with skills inferred from experiences/projects later
+        skills = sorted(set(tech_stack))
+
+        return {"resume_summary": summary, "skills": skills}
 
 
 gemini_service = GeminiService()

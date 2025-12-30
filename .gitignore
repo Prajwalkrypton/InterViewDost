@@ -7,6 +7,7 @@ Backend/.venv/
 Backend/__pycache__/
 Backend/**/*.pyc
 Backend/app/env
+Frontend/env
 
 # OS / editor junk
 .DS_Store

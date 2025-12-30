@@ -14,6 +14,7 @@ class User(Base):
     email = Column(String(255), nullable=True, unique=True)
     password_hash = Column(String(255), nullable=True)
     role = Column(String(50), nullable=True)  # e.g., "candidate", "interviewer", "admin"
+    resume_summary = Column(Text, nullable=True)
 
     # Relationships
     candidate_interviews = relationship(

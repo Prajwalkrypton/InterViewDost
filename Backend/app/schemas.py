@@ -1,5 +1,5 @@
 from datetime import datetime, date, time as time_type
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel
 
@@ -9,6 +9,7 @@ class UserBase(BaseModel):
     email: Optional[str] = None
     password_hash: Optional[str] = None
     role: Optional[str] = None
+    resume_summary: Optional[str] = None
 
 
 class User(UserBase):
@@ -20,10 +21,41 @@ class User(UserBase):
 
 class InterviewStartRequest(BaseModel):
     candidate: UserBase
+    candidate_id: Optional[int] = None
     interviewer_id: Optional[int] = None
     interview_type: Optional[str] = None
     date: Optional[date] = None
     time: Optional[time_type] = None
+    skills: Optional[List[str]] = None
+
+
+class CandidateProfileInput(BaseModel):
+    name: str
+    email: str
+    age: Optional[int] = None
+    tech_stack: Optional[List[str]] = None
+    work_experiences: Optional[List[str]] = None
+    projects: Optional[List[str]] = None
+    companies_worked: Optional[List[str]] = None
+    target_role: Optional[str] = None
+    target_company: Optional[str] = None
+    resume_text: Optional[str] = None
+
+
+class ProfileEnrichResponse(BaseModel):
+    user_id: int
+    resume_summary: str
+    skills: List[str]
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthLoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: User
 
 
 class Question(BaseModel):

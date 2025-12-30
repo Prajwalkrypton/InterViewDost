@@ -14,6 +14,8 @@ export default defineConfig({
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+      // Work around unicorn-magic/npm-run-path bundling issues in the browser build
+      'unicorn-magic': path.resolve(__dirname, './src/shims/unicorn-magic.ts'),
     },
   },
 })

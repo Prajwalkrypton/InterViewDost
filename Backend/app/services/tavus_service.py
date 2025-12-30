@@ -57,8 +57,9 @@ class TavusService:
             payload["replica_id"] = replica_id
         if conversation_name:
             payload["conversation_name"] = conversation_name
-        if context:
-            payload["context"] = context
+        # Some Tavus API configurations do not accept a top-level 'context' field
+        # and will return a 400 with "{'context': ['Unknown field.']}". To avoid
+        # blocking the flow, we omit it here and rely on persona configuration.
         if callback_url:
             payload["callback_url"] = callback_url
 
@@ -68,6 +69,31 @@ class TavusService:
 
         data = resp.json()
         return data
+
+    def send_system_message(self, conversation_id: str, content: str) -> Dict[str, Any]:
+        """Send a system message to an existing conversation to provide context.
+
+        This is the Tavus-recommended way to feed interview instructions and
+        candidate details. It must be called *after* create_conversation.
+        """
+
+        url = f"{self.BASE_URL}/v2/conversations/{conversation_id}/messages"
+        payload: Dict[str, Any] = {
+            "role": "system",
+            "content": content,
+        }
+
+        # Tavus docs for messages typically use Bearer auth; we can reuse the
+        # same API key but adjust the header format.
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Tavus message error {resp.status_code}: {resp.text}")
+        return resp.json()
 
 
 tavus_service = TavusService()

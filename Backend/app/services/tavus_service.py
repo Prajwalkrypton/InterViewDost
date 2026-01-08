@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 
 import requests
+from requests import RequestException
 
 from ..core_config import get_settings
 
@@ -15,6 +16,9 @@ class TavusService:
     conversation_id + conversation_url for embedding in the UI.
     """
 
+    # Use the Tavus CVI base URL that is reachable from this environment.
+    # The older host "tavusapi.com" is currently responding correctly for
+    # conversation creation and returns `conversation_url`.
     BASE_URL = "https://tavusapi.com"
 
     def __init__(self) -> None:
@@ -63,7 +67,11 @@ class TavusService:
         if callback_url:
             payload["callback_url"] = callback_url
 
-        resp = requests.post(url, headers=self._headers(), json=payload, timeout=60)
+        try:
+            resp = requests.post(url, headers=self._headers(), json=payload, timeout=60)
+        except RequestException as exc:  # network, DNS, timeout, etc.
+            raise RuntimeError(f"Tavus network error: {exc}") from exc
+
         if resp.status_code >= 400:
             raise RuntimeError(f"Tavus error {resp.status_code}: {resp.text}")
 

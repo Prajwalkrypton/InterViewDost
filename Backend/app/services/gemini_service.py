@@ -227,5 +227,71 @@ class GeminiService:
             )
             return {"comments": fallback_comments, "suggestions": fallback_suggestions}
 
+    def generate_tavus_interviewer_context(self, payload: Dict[str, Any]) -> str:
+        """Generate compact Tavus conversation context from stored profile + resume.
+
+        Tavus CVI supports a `context` field at conversation creation which gets
+        appended to the persona/system prompt. We keep this concise to improve
+        avatar grounding without hitting context limits.
+        """
+
+        name = payload.get("name") or "Candidate"
+        target_role = payload.get("target_role") or payload.get("interview_type") or "the role"
+        skills = payload.get("skills") or []
+        resume_summary = payload.get("resume_summary") or ""
+        resume_raw = payload.get("resume_raw") or ""
+
+        if isinstance(skills, list):
+            skills_str = ", ".join([str(s).strip() for s in skills if str(s).strip()])
+        else:
+            skills_str = str(skills)
+
+        if resume_raw and len(resume_raw) > 12000:
+            resume_raw = resume_raw[:12000]
+
+        system_instruction = (
+            "You are preparing context for an AI interviewer avatar. "
+            "Write a clear, compact conversational_context that will be appended to a system prompt. "
+            "It must tell the interviewer who the candidate is, what role they target, their key skills, "
+            "and 5-8 high-signal facts from the resume. Also include strict interviewing guidelines. "
+            "Return ONLY plain text (no markdown, no JSON). Keep it under 1800 characters."
+        )
+
+        prompt = (
+            f"Candidate name: {name}\n"
+            f"Target role: {target_role}\n"
+            f"Skills: {skills_str or 'N/A'}\n\n"
+        )
+        if resume_summary:
+            prompt += f"Resume summary:\n{resume_summary}\n\n"
+        if resume_raw:
+            prompt += f"Resume raw text (may be noisy):\n{resume_raw}\n\n"
+
+        prompt += (
+            "Now produce the interviewer context. Include:\n"
+            "- a short candidate briefing\n"
+            "- what to probe (projects, skills, gaps)\n"
+            "- interview structure (intro, technical, behavioral, closing)\n"
+            "- tone and constraints (professional, friendly, ask one question at a time)"
+        )
+
+        try:
+            ctx = self._generate(prompt, system_instruction)
+            ctx = (ctx or "").strip()
+            if len(ctx) > 1800:
+                ctx = ctx[:1800]
+            return ctx
+        except Exception:
+            fallback = (
+                "You are an AI interviewer. Interview the candidate for "
+                f"{target_role}. Candidate: {name}. "
+                f"Skills: {skills_str or 'N/A'}. "
+                f"Resume summary: {resume_summary or 'N/A'}. "
+                "Guidelines: Be professional and friendly. Ask one question at a time. "
+                "Start with a brief intro, then ask about background, projects, and key skills. "
+                "Include behavioral questions (STAR), then close with next steps."
+            )
+            return fallback[:1800]
+
 
 gemini_service = GeminiService()

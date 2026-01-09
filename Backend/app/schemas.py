@@ -67,6 +67,7 @@ class InterviewStartResponse(BaseModel):
     interview_id: int
     question: Question
     conversation_url: Optional[str] = None
+    tavus_error: Optional[str] = None
 
 
 class AnswerRequest(BaseModel):
@@ -92,4 +93,8 @@ class InterviewSummaryResponse(BaseModel):
     overall_score: Optional[int]
     items: list[InterviewSummaryItem]
     completed_at: Optional[datetime]
+
+
+class SystemMessageRequest(BaseModel):
+    message: str
 

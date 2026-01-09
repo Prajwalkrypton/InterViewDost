@@ -1,0 +1,10 @@
+{
+  "candidate": {
+    "name": "Test User",
+    "email": "test@example.com",
+    "role": "SDE"
+  },
+  "interviewer_id": 1,
+  "interview_type": "Technical",
+  "skills": ["Python", "React"]
+}

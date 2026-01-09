@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,8 @@ from ..services.gemini_service import gemini_service
 from ..services.tavus_service import tavus_service
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # --- Routes -------------------------------------------------------------------
@@ -96,51 +99,72 @@ def start_interview(payload: schemas.InterviewStartRequest, db: Session = Depend
         "email": candidate.email,
         "role": candidate.role,
         "resume_summary": candidate.resume_summary,
+        "resume_raw": candidate.resume_raw,
         "skills": skill_names,
     }
 
     skills_section = ", ".join(skill_names) if skill_names else "(skills not provided)"
     resume_section = candidate.resume_summary or "No explicit resume summary was provided."
 
-    context_str = (
-        f"""You are an AI interviewer.
-Candidate details:
-- Name: {candidate_profile.get('name')}
-- Email: {candidate_profile.get('email')}
-- Target role: {candidate_profile.get('role') or payload.interview_type}
-
-Resume summary:
-{resume_section}
-
-Key skills:
-{skills_section}
-
-Interview guidelines:
-- Start by briefly introducing yourself as the AI interviewer.
-- Ask about the candidate's background and recent experience.
-- Drill into their key skills and projects.
-- Ask behavioral questions about teamwork, conflict, and learning.
-- Keep a professional, friendly tone and adjust depth based on answers."""
+    context_str = gemini_service.generate_tavus_interviewer_context(
+        {
+            "name": candidate_profile.get("name"),
+            "target_role": candidate_profile.get("role") or payload.interview_type,
+            "interview_type": payload.interview_type,
+            "skills": skill_names,
+            "resume_summary": candidate.resume_summary,
+            "resume_raw": candidate.resume_raw,
+        }
     )
 
     tavus_data: dict | None = None
+    tavus_error: str | None = None
+    conv_id: str | None = None
+    conv_url: str | None = None
     try:
         tavus_data = tavus_service.create_conversation(
             conversation_name=f"InterviewDost Interview {interview.interview_id}",
+            context=context_str,
         )
 
-        conv_id = tavus_data.get("conversation_id") if tavus_data else None
-        if conv_id:
-            # Feed the interview context as a system message, per Tavus best practices.
-            tavus_service.send_system_message(conv_id, context_str)
-    except RuntimeError:
+        if tavus_data:
+            nested = tavus_data.get("data") if isinstance(tavus_data.get("data"), dict) else None
+            conv_id = (
+                tavus_data.get("conversation_id")
+                or tavus_data.get("id")
+                or (nested.get("conversation_id") if nested else None)
+                or (nested.get("id") if nested else None)
+            )
+            conv_url = (
+                tavus_data.get("conversation_url")
+                or tavus_data.get("conversationUrl")
+                or (nested.get("conversation_url") if nested else None)
+                or (nested.get("conversationUrl") if nested else None)
+            )
+
+        if conv_id and not conv_url:
+            try:
+                detail = tavus_service.get_conversation(conv_id)
+                nested_detail = detail.get("data") if isinstance(detail.get("data"), dict) else None
+                conv_url = (
+                    detail.get("conversation_url")
+                    or detail.get("conversationUrl")
+                    or (nested_detail.get("conversation_url") if nested_detail else None)
+                    or (nested_detail.get("conversationUrl") if nested_detail else None)
+                )
+            except RuntimeError as e:
+                logger.warning("Tavus conversation created but could not fetch details: %s", e)
+    except RuntimeError as e:
         # If Tavus is unavailable or returns an error (e.g. rate limit, bad config),
         # continue with the interview flow but without an avatar URL. This keeps the
         # core product usable even when the external provider is flaky.
+        tavus_error = str(e)
         tavus_data = None
+        conv_id = None
+        conv_url = None
 
-    interview.tavus_conversation_id = tavus_data.get("conversation_id") if tavus_data else None
-    interview.tavus_conversation_url = tavus_data.get("conversation_url") if tavus_data else None
+    interview.tavus_conversation_id = conv_id
+    interview.tavus_conversation_url = conv_url
     db.add(interview)
     db.commit()
     db.refresh(interview)
@@ -163,6 +187,7 @@ Interview guidelines:
             text=question.question_text,
         ),
         conversation_url=interview.tavus_conversation_url,
+        tavus_error=tavus_error,
     )
 
 
@@ -212,6 +237,26 @@ def submit_answer(
         follow_up_question=None,
         done=True,
     )
+
+
+@router.post("/{interview_id}/push-system-message")
+def push_system_message(
+    interview_id: int,
+    payload: schemas.SystemMessageRequest,
+    db: Session = Depends(get_db),
+):
+    interview: Optional[models.Interview] = (
+        db.query(models.Interview).filter_by(interview_id=interview_id).first()
+    )
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if not interview.tavus_conversation_id:
+        raise HTTPException(status_code=400, detail="No Tavus conversation linked")
+    try:
+        tavus_service.send_system_message(interview.tavus_conversation_id, payload.message)
+        return {"status": "ok"}
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @router.get("/{interview_id}/summary", response_model=schemas.InterviewSummaryResponse)

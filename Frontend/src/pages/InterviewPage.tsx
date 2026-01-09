@@ -13,6 +13,7 @@ interface InterviewStartResponse {
   interview_id: number;
   question: QuestionDto;
   conversation_url: string | null;
+  tavus_error?: string | null;
 }
 
 function TavusFrame({ url }: { url: string }) {
@@ -36,6 +37,7 @@ export function InterviewPage() {
   const [targetRole, setTargetRole] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tavusError, setTavusError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!state.user) {
@@ -51,6 +53,7 @@ export function InterviewPage() {
 
     setLoading(true);
     setError(null);
+    setTavusError(null);
 
     try {
       const body = {
@@ -73,6 +76,7 @@ export function InterviewPage() {
       setInterviewId(data.interview_id);
       setQuestion(data.question);
       setConversationUrl(data.conversation_url ?? null);
+      setTavusError(data.tavus_error ?? null);
     } catch (err: any) {
       setError(err.message ?? "Failed to start interview");
     } finally {
@@ -126,6 +130,17 @@ export function InterviewPage() {
         {/* Left: Tavus video area */}
         <section className="flex-[4] min-w-0 border-r border-zinc-800 flex flex-col">
           <div className="flex-1 p-4 flex flex-col gap-3">
+            {tavusError && !conversationUrl && (
+              <div className="rounded-xl border border-amber-600/40 bg-amber-950/30 px-4 py-3">
+                <p className="text-sm text-amber-200 font-medium">
+                  Avatar unavailable
+                </p>
+                <p className="text-xs text-amber-200/80 mt-1 break-words">
+                  {tavusError}
+                </p>
+              </div>
+            )}
+
             {!conversationUrl && (
               <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-zinc-700 bg-zinc-950/40">
                 <p className="text-sm text-zinc-400 max-w-sm text-center">
